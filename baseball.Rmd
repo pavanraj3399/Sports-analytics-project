@@ -1,0 +1,1345 @@
+---
+title: "CS5801 Coursework"
+author: '2042729'
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    fig_caption: yes
+  pdf_document: default
+  word_document:
+    toc: yes
+version: 1
+---
+#### Initiating required packages for the project
+
+```{r message=FALSE, warning=FALSE}
+
+
+# Initiating required packages for the project
+
+
+library(ggplot2)      # data visualization
+library(dplyr)        # data manipulation
+library(tidyverse)    # data manipulation
+library(GGally)       # data visualization
+library(hrbrthemes)   # data visualization
+library(viridis)      # data visualization
+library(validate)     # data quality validation
+library(reshape2)     # Data transformation
+library(gridExtra)    # Arrange multiple grid-based plots
+library(rpart)        # Recursive partitioning for decision trees
+library(rpart.plot)   # Plot 'rpart' models.
+library(RColorBrewer) # Color palettes for visualization
+library(rattle)       # Plot decision tree (graphical user interface).
+library(car)          # Checking Multicollinearity
+library(ROCR)         # Visualizing the Performance  ROCR curve
+library(MASS)         # For the boxcox() function
+```
+
+
+# 1. Organise and clean the data
+
+## 1.1 Subset the data into the specific dataset allocated
+ 
+*The following R code involves setting up relevant working directory and loading the CS5801_data.rda file followed by sub-setting the dataset with the two least significant digits from my student id i.e. 2 and 9, in this case  which subsets the dataframe with team_IDs "LAN" & "KCA"*
+
+```{r}
+# Setting working directory
+setwd("~/Desktop/git/Sports-analytics-project")
+
+# Loading the datset
+load(file = "CS5801_data.rda")
+
+# Sub-setting the dataset with the  least 2 significant digits from student id
+data_frame <-
+  subset(CS5801.data, teamID.x == "LAN" | teamID.x == "KCA")
+
+# First 5 rows of dataframe
+head(data_frame)
+```
+
+
+## 1.2 Data quality analysis
+
+**Data quality**  *refers to fit of the data for effective decision making process, operations and predictive analytics. Apparently every statistical analysis assumes data is at high standards and free from defects (Fürber, 2016). Despite quality issues are commonly concerned with accuracy or noise, there are alternative perspectives such as addressing timeliness and completeness of the data (Shepperd and Liebchen, n.d.). The main components of addressing data quality issues involve dealing with missing values, implausible values, identical cases,features with conflicting values, inconsistent cases and outliers (Shepperd, Song, Sun and Mair, 2013). The chosen approach for the current project involve investigating dataset for primary data checks like data dimensions, structure, unique values, data types and renaming column names followed by validating the dataset using validate package in R by implementing set of rules and identifying the quality issues which violates the rules.* 
+
+### 1.2.1 Renaming the data features
+
+*According to journal published Scientific Data a dataset is said to be **FAIR **if it  meets following principles of findability, accessibility, interoperability, and reusability (Wilkinson et al., 2016). Critical part of this processs involves  understanding the importance of features from the metadata provided. Hence renaming the feature names plays important role in finding, accesing, interpreting and reusing the features from the dataset . *
+
+
+```{r}
+# Changing column names to full description for easy understanding of the variables
+data_frame <-
+  data_frame %>% rename(
+    Player_ID = playerID,
+    Team_ID = teamID.x,
+    Games_Played = G,
+    Runs_Scored = R,
+    Hits = H,
+    Runs_Batted_In = RBI ,
+    Weight_Pounds = weight,
+    Height_Inches = height,
+    Salary = salary,
+    Birth_Date = birthDate,
+    Career_Length_Years = career.length,
+    Bat_Style = bats,
+    Age = age,
+    At_Bats = AB,
+    Hit_Ind_2015 = hit.ind
+  )
+
+```
+
+
+### 1.2.2 Data Structure
+*The dataset contains 78 observations with 15 different features of which data types are as follows:*
+
++ **Unique Identifier** : Player_ID
++ **Numerical columns** : Games_Played, Runs_Scored, Hits, At_Bats, Runs_Batted_In,                             Weight_Pounds, Height_Inches, Salary, Career_Length_Years, Age.
++ **Factor columns**    : Team_ID, Hit_Ind_2015, Bat_Style.
++ **Date column**       : Birth_Date
+
+*The following R code identifies  the features from metadata provided and assign the features with their respective data types in new vectors.*
+
+
+```{r}
+# Creating a vector for factor columns
+factor_columns <- c("Team_ID" , "Hit_Ind_2015", "Bat_Style")
+
+# Create a vector for character columns
+charactor_columns <- "Player_ID"
+
+# Create a vector for Date column
+date_column <- "Birth_Date"
+
+# Creating a vector for numerical columns
+numerical_columns <- colnames(data_frame)[!colnames(data_frame)
+                                          %in% c(factor_columns, date_column, charactor_columns)]
+
+# Converting identified columns to factors
+data_frame[factor_columns] <-
+  lapply(data_frame[factor_columns], factor)
+
+# structure of the dataframe
+str(data_frame)
+```
+
+### 1.2.3 Distinct and Null values
+
+*The following R code displays the null values and unique values present in each feature of the dataframe. We can clearly see that there are no null values in the datset. Furthermore the column "Distinct_Values" represents the unique values present in each column, from this column we can identify the unique identifier feature Player_ID has 76 distinct values which does not match with number of observations in the dataset causing a potential duplicate observations in the dataset which we investigate in next section.*
+
+```{r}
+# Finding Null values in dataframe and  using n_distinct function to understand the unique values present in each feature.
+
+unique_null <-
+  data.frame(
+    "Null_Values"     = colSums(is.na(data_frame)),
+    "Distinct_values" = sapply(data_frame, n_distinct)
+  )
+
+unique_null
+```
+### 1.2.4 Data Quality Checks
+
+*As discussed in 1.2 important process of acessing the data quality involves assessing for implausible values, identical cases,features with conflicting values, inconsistent cases and outliers. To handle these issues validate package offers an extensive functions to test the dataset with predefined rules in form of logical syntax (Jonge, 2019). The following set of rules are built by the understanding of domain knowledge.*
+
+##### Data Quality Category 
+
+**1. Identical observations** 
+
++ **Rule 1** : Identify duplicate rows in the data using Player_ID as unique identifier.
+
+**2. Features with conflicting values**
+
++ **Rule 2** :  According to the meta data provided the data is from season 2015, if this is true then age player should be equal to birth year substracted from the year 2015. 
+
++ **Rule 3** : From research youngest player to play baseball is 15 years (Baseball-Reference.com, 2020), so when we subtract career length from age it cannot be less than 15 years.
+
+**3. Features with implausible values** 
+
++ **Rule 4** : To check for negative values we use condition such that numerical columns present in datset should not be less than zero. 
+
++ **Rule 5** : Practically Career length cannot be greater than age of player.
+
++ **Rule 6** : Height cannot be less than 40 Inches or Greater than 90 Inches. 
+
++ **Rule 7** : Weight cannot be less than 60 Pounds or Greater than 400 Pounds
+
+**4. Identical features** 
+
++ **Rule 8** : if Hits variable is greater than zero  then player making at least one Hit_Ind_2015 season should be 1.
+
+
+*The resulted dataframe contains Player_ID as unique identifier and rule that violated by the observation.*
+                             
+
+```{r}
+# create new column for birth year by referring to birth date for checking rule 2
+data_frame$Birth_Year <- format(as.Date(data_frame$Birth_Date,
+                                        format = "%d/%m/%Y"), "%Y")
+
+# Rules
+rules <-
+  validator(
+    # Rule 1
+    Rule1 = !is_unique(Player_ID),
+    # Rule 2
+    Rule2 = ceiling(Age) != (2015 - as.numeric(Birth_Year)),
+    # Rule 3
+    Rule3 = (Age - Career_Length_Years) <= 15,
+    # Rule 4
+    Rule4 = (Runs_Batted_In < 0 |
+               Games_Played < 0 |
+               Hits < 0 | At_Bats < 0 | Salary < 0),
+    # Rule 5
+    Rule5 = Career_Length_Years >  ceiling(Age),
+    # Rule 6
+    Rule6 = (Height_Inches < 40 | Height_Inches > 90),
+    # Rule 7
+    Rule7 = (Weight_Pounds < 60 | Weight_Pounds > 400),
+    # Rule 8
+    Rule8 = (Hits  > 0  & Hit_Ind_2015 == 0)
+  )
+
+# checking results with Player_ID as unique identifier
+checkResults    <-  confront(data_frame, rules, key = "Player_ID")
+
+# convert to dataframe
+checkResults_DF <-  as.data.frame(checkResults)
+
+# Identifying data quality issues
+potential_outliers   <-  subset(checkResults_DF, value == "TRUE")
+row.names(potential_outliers) <- NULL
+
+# Potential outliers
+potential_outliers
+```
+*The logical rules are structured such that if an observation accepts the logical rule then it is identified as a data quality issue. The below plot illustrates proportion of data quality issues identified in dataset in a stacked barplot, the green bar represent that observations that passed the rule and are identified as potential data quality issues.*
+
+```{r}
+barplot(checkResults,
+        stack_by = c("passes", "fails", "nNA"),
+        main = "Data quality Issues") 
+```
+
+## 1.3 Data cleaning  
+
+*In the previous section we have identified potential data quality issues in the datset by establishing some logical rules. Various literature behind data quality issues and missingness suggest 5% as upper threshold for deletion of observations as an approach (Madley-Dowd, Hughes, Tilling and Heron, 2019). Since our dataset contains quality issues in 10 observations which is 13%(approx.) of the overall dataset we consider alternate approaches such as imputation techniques except in scenarios where there are duplicate rows. The current section involve dealing with data quality issues with appropriate techniques for each rule identified from previous section*
+
+
+### 1.3.1 Dealing with Identical observations (Rule 1)
+
+*The following code identifies the duplicate rows present in the dataset and deletes them, we can see that observations with Player_ID's "guerral01" and "moralke01" are repeated hence their replicates are removed.*
+
+```{r}
+# Extracting duplicate rows in dataset
+rule1_outliers <-
+  potential_outliers %>% filter(name == "Rule1") %>% pull(Player_ID)
+data_frame %>% filter(Player_ID %in% rule1_outliers)
+
+# Deleting the duplicated rows from the dataframe with unique identifier Player_ID.
+data_frame <- data_frame[!duplicated(data_frame$Player_ID),]
+```
+
+
+### 1.3.2 Features with conflicting values
+
+#### 1.3.2.1 : Rule 2 
+
+*According to the meta data provided the data is from season 2015, The player "lawremr01" is born in 1990 but the age is displayed as 31.95 which is conflicting. Assuming the Birth_Date is accurate lets impute the Age feature with the value that is derived from subtracting Birth_Year from year 2015 i.e. 25.*
+
+```{r}
+
+# Extract observations violating Rule 2
+rule2_outliers <-
+  potential_outliers %>% filter(name == "Rule2") %>% pull(Player_ID)
+data_frame %>% filter(Player_ID == rule2_outliers) %>% dplyr::select(Player_ID, Age, Birth_Year, Birth_Date)
+
+# Imputing conflicting value in Age with accurate value by subtracting birth year from 2015.
+
+data_frame[data_frame$Player_ID == "lawremr01", "Age"] <-
+  (2015 - as.numeric(data_frame[data_frame$Player_ID == "lawremr01", "Birth_Year"]))
+```
+
+### 1.3.3 Features with implausible values
+
+#### 1.3.3.1 : Handling Negative values (Rule 4)
+
+*Accuracy of a dataset is hugely dependent on the numerical features present in the dataset, as most of the sport databases rely on manual data entry there are chances of humman errors in the dataset such as negative signs. Presence of implausible negative values in features can turn correlation to zero and significant statistical test to being non-significant (Barchard and Pace, 2011). Hence i considered converting the negative values to absolute values for the two observations which has negative values.*
+
+```{r}
+# Extract observations violating Rule 4
+rule4_outliers <-
+  potential_outliers %>% filter(name == "Rule4") %>% pull(Player_ID)
+data_frame %>% filter(Player_ID == rule4_outliers) %>% dplyr::select(Player_ID, Games_Played, Runs_Batted_In)
+
+# Converting negative values in dataframe to absolute values
+data_numerical <- abs(data_frame[, c(numerical_columns)])
+data_frame     <-
+  cbind(data_frame[, c(charactor_columns, factor_columns, date_column)], data_numerical)
+
+```
+
+#### 1.3.3.2 : Rule 3 & 5
+
+*From the quality checks we have identified an obsevation with Player_ID "parrato03" violating the logical expression where Career_Length_Years is greater than Age. *
+
+```{r}
+# Extract observations violating Rule 5
+rule5_outliers <-
+  potential_outliers %>% filter(name == "Rule5") %>% pull(Player_ID)
+data_frame %>% filter(Player_ID == rule5_outliers) %>% dplyr::select(Player_ID, Age, Career_Length_Years)
+```
+
+*Since Age and Career_Length_Years are linearly correlated from the plot below, it makes sense to impute the implausible value in Career_Length_Years with the linear regression estimates. Regression imputation also called conditional mean imputation uses regression equation to compute a predicted value for given set of explanatory variables which can be used as a replacement (Enders, 2010).*
+
+```{r}
+# Scatter plot for Age and Career length with regression line
+plot1 <-
+  ggplot(data = data_frame[data_frame$Player_ID != "parrato03",],
+         aes(x = Career_Length_Years, y = Age))
+plot1 <- plot1 + geom_point(color = "blue", alpha = .7) +
+  geom_smooth(
+    method = lm,
+    formula = y ~ x,
+    color = "red",
+    fill = "#69b3a2",
+    se = TRUE
+  ) +
+  ggtitle("Linear model between Age and Career length", subtitle =  "Plot 1") +
+  theme(plot.title = element_text(hjust = 0.5))
+plot1
+```
+
+*The Linear regression is statistically significant with an Adjusted R-squared of 0.71 and and a p-value of < 2.2e-16, The predicted value for Career_Length_Years is 4.47 for given Age of 27.65, The following code imputes the predicted value of 4.47 to the Career_Length_Years. This regression imputation also solves the problem identified with Rule 3 where youngest baseball player cannot be less than 15 years i.e when we substract career length from age it cannot be less than 15 years.*
+
+```{r}
+# Linear model between Age and Career length
+linear_regressor_1 <-
+  lm(data = data_frame[data_frame$Player_ID != "parrato03",],
+     formula = Career_Length_Years ~ Age)
+
+# Predicting the estimates for the observation
+predicted_value_ca <- predict(linear_regressor_1,
+                              data.frame(Age = data_frame[data_frame$Player_ID == "parrato03", "Age"]))
+
+# Assigning predicted value to the Career_Length_Years for Player_ID "parrato03"
+data_frame[data_frame$Player_ID == "parrato03", "Career_Length_Years"] <-
+  predicted_value_ca
+
+print(paste("Predicted career length value : ", predicted_value_ca))
+```
+
+
+#### 1.3.3.3 : Rule 6 & 7
+
+*Rule 6 & 7 states that Height of a player cannot be less than 40 Inches or Greater than 90 Inches and Weight cannot be less than 60 Pounds or Greater than 400 Pounds respectively, we've found three observations violating these rules. The below graph shows the scatter plot between Height_Inches and Weight_Pounds with outliers in the left plot and without outliers in the right side plot. We can clearly see that the identified observations with Player_ID's "nelsoah01", "ottwexd01", "odonnrb01" showing the extremeness in the left side plot. In the right side plot without outlier the trend between height and weight is pretty much linear hence i consider using linear regression estimates method to replace the extreme values.* 
+ 
+```{r}
+# Extract observations violating Rule 6 & 7
+rule67_outliers <-
+  potential_outliers %>% filter(name %in% c("Rule6", "Rule7")) %>% pull(Player_ID)
+
+
+# scatter plot for height and weight with outliers
+
+plot2 <- ggplot(data_frame,
+                aes(x = Height_Inches, y = Weight_Pounds))
+plot2 <- plot2 + geom_point(color = "blue", alpha = .7) +
+  geom_smooth(
+    method = lm,
+    formula = y ~ x,
+    color = "red",
+    fill = "#69b3a2",
+    se = TRUE
+  ) +
+  ggtitle("With outliers", subtitle =  "Plot 2") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+# scatter plot for height and weight without outliers
+plot3 <-
+  ggplot(data_frame[!data_frame$Player_ID %in% rule67_outliers,],
+         aes(x = Height_Inches, y = Weight_Pounds))
+plot3 <- plot3 + geom_point(color = "blue", alpha = .7) +
+  geom_smooth(
+    method = lm,
+    formula = y ~ x,
+    color = "red",
+    fill = "#69b3a2",
+    se = TRUE
+  ) +
+  ggtitle("Without outliers", subtitle =  "Plot 3") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+grid.arrange(plot2, plot3, ncol = 2)
+
+```
+
+*The linear equation for height given the Weight is (Height_Inches = 56.36398 + (Weight_Pounds x 0.07884)) , from this  regression equation we are able to calculate estimated heights for players "nelsoah01" and "ottwexd01" given their weight and impute them. Similarly regression equation between Weight given the Height is (Weight_Pounds = -112.818 + (Height_Inches x  4.498)), from this we estimated the weight for  player "odonnrb01" and replaced it with the estimated value. With respect to diagnostics of the linear regression both the models are highly significant with low p-values for the estimates in both cases.*
+
+```{r}
+# linear model between height ~ weight
+
+linear_regressor_2 <-
+  lm(data = data_frame[!data_frame$Player_ID %in% rule67_outliers,],
+     formula = Height_Inches ~ Weight_Pounds)
+
+
+# predicting height for players "nelsoah01","ottwexd01"
+predicted_value_hw <- predict(linear_regressor_2,
+                              data.frame(Weight_Pounds = data_frame[data_frame$Player_ID %in% c("nelsoah01", "ottwexd01"), "Weight_Pounds"]))
+
+# Imputing predicted values to the players "nelsoah01","ottwexd01"
+data_frame[data_frame$Player_ID == "nelsoah01", "Height_Inches"]  <-
+  predicted_value_hw[1]
+data_frame[data_frame$Player_ID == "ottwexd01", "Height_Inches"]  <-
+  predicted_value_hw[2]
+
+
+# linear model between weight~height
+linear_regressor_3 <-
+  lm(data = data_frame[!data_frame$Player_ID %in% "odonnrb01",],
+     formula =   Weight_Pounds ~ Height_Inches)
+
+
+# predicting weight for player "odonnrb01"
+predicted_value_wh <- predict(linear_regressor_3,
+                              data.frame(Height_Inches = data_frame[data_frame$Player_ID %in% "odonnrb01", "Height_Inches"]))
+
+# Imputing predicted values to the player "odonnrb01"
+data_frame[data_frame$Player_ID == "odonnrb01",  "Weight_Pounds"] <-
+  predicted_value_wh
+
+# Updated measures for the players
+data_frame %>% filter(Player_ID %in% rule67_outliers) %>% dplyr::select(Player_ID, Weight_Pounds, Height_Inches)
+```
+
+### 1.3.4. Identical features (Rule 8)
+
+*Identical features can be represented as when two features process same kind of information or convey similar information.From the metadata provided Hit_Ind_2015 feature will be 1 if the player has made at least one hit in the 2015 season and 0 if they have not, but this rule is violated for Player_ID "eelmajj01" where the player made one Hit in the year 2015 but the Hit_Ind_2015 shows value as 0. So following code replace the value with 1.*
+
+```{r}
+# Extract observations violating Rule 6 & 7
+rule8_outliers <-
+  potential_outliers %>% filter(name == "Rule8") %>% pull(Player_ID)
+
+data_frame %>% filter(Player_ID == "eelmajj01") %>% dplyr::select(Player_ID, Hit_Ind_2015, Hits)
+
+# Imputing outlier in hit in 2015 column by comparing with hits column
+data_frame <-
+  data_frame %>% mutate(Hit_Ind_2015 = ifelse(Hits > 0, 1, 0))
+
+```
+
+### 1.3.5 Data Manipulation for categorical variables and numerical features
+
+*This section handles with the categorical features in the dataframe where the values  are represented in the form of acronyms. For the team name i mapped values to a new column named Team_Name with complete team names of KCA as Kansas City Royals and LAN as Los Angeles Dodgers (Baseballprospectus.com, 2020).  The batting style values of "B","L","R" are mapped to "Both","Left","Right" respectively. Additionally creating new variable for birth year by extracting from birth date and creating BMI from height and weight of variables. The aim of this data manipulation is to better understanding of variables in statistical analysis and visualizations.*
+
+
+```{r}
+
+# Create new column for team names by referring to team ID
+data_frame <-
+  data_frame %>% mutate(Team_Name = if_else(Team_ID == "KCA",
+                                            "Kansas City Royals",
+                                            "Los Angeles Dodgers"))
+
+# Renaming bating style columns
+levels(data_frame$Bat_Style) <- c("Both", "Left", "Right")
+
+# create new column for birth year by referring to birth date
+data_frame$Birth_Year <- format(as.Date(data_frame$Birth_Date,
+                                        format = "%d/%m/%Y"), "%Y")
+
+# Calculating BMI = Weight in Kilograms / (Height in meters ^ 2) from height and weight
+data_frame$BMI <-
+  ((data_frame$Weight_Pounds) / 2.205) / (((data_frame$Height_Inches) / 39.370) ^ 2)
+
+```
+
+
+
+# 2. Exploratory Data Analysis (EDA)
+
+*The term Exploratory Data Analysis was first coined and promoted by John W. Tukey in 1962, he described it as "procedures, planning and techniques for analyzing and interpreting data for more easier, precise and accurate results"(Tukey, 1962),he also defined it as the foundation stone of statistical model building but not the whole story (Tukey, 1977). The approach to EDA usually involve uni-variate, multi-variate and graphical representation of features in the dataset.*
+
+## 2.1 EDA plan
+
+*The chosen approach for Exploratory Data Analysis (EDA) is as follows, Firstly we conduct uni-variate analysis where we consider one feature at a time and analyze it using appropriate descriptive statistics and visualization techniques depending on the data type of the variable.Secondly, a multi-variate analysis using two or more features at a time using techniques like scatterplots, boxplots and correlation plots e.t.c followed by executing few hypothesis tests between variable with some underlying assumptions.*
+
+
+## 2.2 EDA and summary of results  
+
+## 2.2.1 Univariate Analysis.
+
+### 2.2.1.1 Descriptive statistics of Data
+
+*The following R code returns Descriptive statistics for dataframe, the summary function gives a overview of the stats with respect to central tendency and inter-quartile ranges for numerical variables, frequency counts for factorial variables . We will investigate variables more individually in further visualizations.*
+
+```{r}
+# Descriptive statistics
+summary(data_frame)
+```
+### 2.2.1.2 Frequency count of teams
+
+*Plot 4 illustrates frequency count of players belonging to each team, from the plot we can see that there are 36 players belonging to Kansas City Royals, and 40 players from Los Angles Dodgers i.e 52% of dataset.*
+
+```{r}
+# Frequency count of teams
+freq_Team = as.data.frame(table(data_frame$Team_Name))
+names(freq_Team) = c("Team", "Count")
+
+# plotting graph
+plot4 <-
+  ggplot(data = freq_Team) + geom_bar(aes(y = Team, x = Count, fill = Team),
+                                      stat = 'identity',
+                                      width = 0.35,
+                                      fill)
+
+plot4 + scale_fill_brewer(palette = "Set1") + ggtitle("Frequency count of teams", subtitle =  "Plot 4") +
+  xlab("Count") + ylab("Team Name") + theme(legend.position = "none",
+                                            plot.title = element_text(hjust = 0.5))
+```
+
+### 2.2.1.3  Batting Styles
+
+*Plot 5 illustrates batting styles in a pie chart, this categorical variable has 3 distinct levels namely Both, Left and Right. Clearly right batting style is most popular with 63% of players adapting to it followed by left side batting style with 26% of total player population. Apparently there are 11% of players who are ambidextrous. Even though there is lots of criticism around pie chart, i think its a good visualization if you want you want your categorical variable to represent as a proportion which is nominal in nature with few distinct levels.*
+
+```{r}
+# Frequency Distribution of Batting styles
+freq_bat = as.data.frame(table(data_frame$Bat_Style))
+names(freq_bat) = c("Bat_Style", "Count")
+
+# plotting graph
+plot5 <-
+  ggplot(freq_bat, aes(x = "", y = Count, fill = Bat_Style)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(y = c(25, 58, 72)),
+            label = c("63%", "26%", "11%"),
+            size = 5)
+
+plot5  + ggtitle("Frequency Distribution of batting styles", subtitle =  "Plot 5") +
+  xlab("") + ylab("") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 2.2.1.4 Frequency Distribution of Game Statistics
+
++ *For the purpose of better visualizations i created two vectors called Game_Stats that consists features (Games_Played, Runs_Scored, Hits, At_Bats, Runs_Batted_In) and Player_Stats with features (Weight_Pounds, Height_Inches,  Salary, Age, BMI,Career_Length_Years). * 
+
++ *Plot 6 illustrates histograms for all the game statistics in a grid view, Clearly all the plots showing a pattern of skewness to the right. Although the Games_Played variable is uniformly distributed except for few spikes here and there, the other game statistics are not showing the similar pattern. We can clearly see huge spike towards zero for features Runs_Scored, Hits, At_Bats and Runs_Batted_In. I would further like to investigate on this issue by subsetting dataframe where games played is not zero but the game statistics are zero in section of R code.*
+
+```{r}
+# Creating vectors for Game stats
+Game_Stats   <- c("Games_Played",
+                  "Runs_Scored",
+                  "Hits",
+                  "At_Bats",
+                  "Runs_Batted_In")
+
+# Creating vectors for player stats
+Player_Stats <- c("Weight_Pounds",
+                  "Height_Inches",
+                  "Salary",
+                  "Age",
+                  "BMI",
+                  "Career_Length_Years")
+
+
+## Histograms for Game Statistics
+game_stat_hist <- stack(data_frame[, Game_Stats])
+plot6 <-
+  ggplot(data = game_stat_hist) + geom_histogram(
+    aes(x = values),
+    bins = 20,
+    color = "#e9ecef",
+    fill = rgb(1, 0, 0, 0.5),
+    position = 'identity'
+  )
+
+plot6  + facet_wrap(~ ind, scales = "free")  +
+  ggtitle("Histograms for Game Statistics", subtitle =  "Plot 6") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+*There are 21 players who played atleast one game but their game stats are absolutely zero, More specifically dataframe below shows there are 9 players with more than 50 games with zero game stats which is skeptical. After research the possible reasons for these are players maybe acted as substitute or a backup players in these games and players who started the game also finished it leaving no chance for other players to bat.*
+
+```{r}
+# Subset data where games played is not zero but rest of game statics are zero.
+data_frame %>% filter(Runs_Batted_In == 0 &
+                        Hits == 0 &
+                        At_Bats == 0 &
+                        Runs_Batted_In == 0 &
+                        Runs_Scored == 0) %>% dplyr::select(all_of(Game_Stats)) %>% arrange(desc(Games_Played))
+```
+
+### 2.2.1.5 Frequency Distribution of Player Statistics
+
+*Plot 7 illustrates histograms for all the player statistics in a grid view, All the attributes showing properties of normal distribution except for salary variable where the values tend to skew towards right. In Salary feature most of the observations fall below 1e+07 mark.However histograms give a crude assessment of data distribution because the visuals can change with change in bin values, hence gaussian assumption is not so evident (Pearson, 2020).*
+
+```{r}
+## Histograms for Player Statistics
+player_stat_hist <- stack(data_frame[, Player_Stats])
+plot7 <-
+  ggplot(data = player_stat_hist) + geom_histogram(aes(x = values),
+                                                   bins = 15,
+                                                   color = "#e9ecef",
+                                                   fill = "#404080")
+plot7  + facet_wrap(~ ind, scales = "free") +
+  ggtitle("Histograms for Player Statistics", subtitle =  "Plot 7") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+## 2.2.2 Multivariate Analysis
+
+### 2.2.2.1 Most expensive players
+
+*The horizontal barplot (plot 8) below displays top 15 players in the dataset with highest salaries color-coded with their respective team names. Clearly, 11 out of top 15 highest paid athletes belong to Los Angeles Dodgers. The highest paid athlete is "kershcl01" with a annual salary of $32,571,000.*
+
+```{r}
+# Most expensive players
+exp_players <- head(data_frame %>% arrange(desc(Salary)), 15)
+
+# plotting graph for top 15 players with high salaries
+plot8 <-
+  ggplot(data = exp_players) + geom_bar(aes(
+    y = reorder(Player_ID, Salary),
+    x = Salary,
+    fill = Team_Name
+  ),
+  stat = 'identity', )
+
+plot8 + scale_fill_brewer(palette = "Set1") + ggtitle("Most Expensive Players", subtitle =  "Plot 8") +
+  xlab("Salary") + ylab("Player ID")
+```
+
+### 2.2.2.2 Central tendency of Game Statistics by Batting Style
+
+*From the plot 6 we observed the pattern of positive skewness of game statistics, hence to measure the central tendency arithmetic mean is not reliable because it is affected by extreme values (Levin and Rubin, 1998), for this reason i chose to use median as a central tendency measure for the plot 9.*
+
+*In the horizontal stacked plot 9 below each bar corresponds to the median value of game statistic color coded by batting style. The plot shows strong association with high central tendency value for the players who are ambidextrous, partly because of less players who are ambidextrous in the the dataset and low variance between these values. In addition to that players who are left handed have higher median value than right handed in every game statistic.*
+
+```{r}
+# median of game stats by batting style
+stat_median_batstyle <- data_frame %>% group_by(Bat_Style) %>%
+  summarise_at(.vars = Game_Stats, .funs = c(median = "median")) %>%
+  data.frame() %>% reshape2::melt(id = "Bat_Style")
+
+# plotting graph of median of game stats by batting style
+plot9 <- ggplot(data = stat_median_batstyle) +
+  geom_bar(
+    aes(y = variable, x = value, fill = Bat_Style),
+    width = .85,
+    position = "Dodge",
+    stat = "identity"
+  )
+
+plot9 + scale_fill_brewer(palette = "Set1") +
+  ggtitle("Central tendency of game stats by batting style", subtitle =  "Plot 9") +
+  xlab("Median Value") + ylab("Game statistic") +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.title = element_blank()
+  ) 
+```
+
+### 2.2.2.3 Central tendency of Game Statistics by Team
+
+*In the horizontal stacked (plot 10) below each bar corresponds to the median value of game statistic color coded by Team name. Clearly Los Angeles Dodgers are out performing Kansas City Royals in every game statistic by doubling the median value, although the median games played by dodgers are less than the royals.*
+
+```{r}
+# median of game stats by team
+stat_mean_team <- data_frame %>% group_by(Team_Name) %>%
+  summarise_at(.vars = Game_Stats, .funs = c(median = "median")) %>%
+  data.frame() %>% reshape2::melt(id = "Team_Name")
+
+# plotting graph of median of game stats by team
+plot10 <- ggplot(data = stat_mean_team) +
+  geom_bar(
+    aes(y = variable, x = value, fill = Team_Name),
+    width = .85,
+    position = "Dodge",
+    stat = "identity"
+  )
+
+plot10 + scale_fill_brewer(palette = "Set1") +
+  ggtitle("Central tendency of Game Statistics by Team", subtitle =  "Plot 10") +
+  xlab("Median Value") + ylab("Game statistic") +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.title = element_blank()
+  )
+
+```
+
+### 2.2.2.4 Game statistics vs Bat style
+
+*Plot 10 illustrates boxplots for all the game statistics in a grid view color coded by Bat style,  It is clear from this plot that values within right handed players are more spread towards extremes which explains the lower median value that  we observed in Plot 9. For the features Runs_Scored, Hits, At_Bats and Runs_Batted_In for right handed players few observations fall above the 75th percentile whisker causing potential extreme values. For the left and ambidextrous players most of the values fall within interquartile range, but the boxes are not symmetric between the median value indicating skewness within these groups.*
+
+```{r}
+## Game statistics vs Bat style
+game_stat_box <-
+  reshape2::melt(data_frame[, c(Game_Stats, "Bat_Style")], id.vars = "Bat_Style")
+
+# plotting graph for Game statistics vs Bat style
+plot11 <- ggplot(data = game_stat_box) +
+  geom_boxplot(aes(
+    x = variable,
+    y = value,
+    fill = Bat_Style,
+    alpha = 1
+  ))
+
+plot11 + facet_wrap(~ variable, scales = "free") +
+  ggtitle("Game statistics vs Bat style", subtitle =  "Plot 11") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 2.2.2.5 Player statistics vs Team 
+*Plot 12 illustrates boxplots for all the Player statistics in a grid view color coded by Team name, The player attributes are not showing significant differences between the teams and the median value between the teams are almost similar. We can see a slight peak for median of BMI(Body Mass Index) for Dodgers players about 3 to 4 units. The Salary feature is showing skewness for both the teams towards lower values.*
+
+```{r}
+# Player statistics vs Team name
+plyr_stat_box <-
+  reshape2::melt(data_frame[, c(Player_Stats, "Team_Name")], id.vars = "Team_Name")
+
+# plotting graph for player statistics vs Team name
+plot12 <- ggplot(data = plyr_stat_box) +
+  geom_boxplot(aes(
+    x = variable,
+    y = value,
+    fill = Team_Name,
+    alpha = 1
+  ))
+
+
+plot12 + facet_wrap(~ variable, scales = "free") +
+  ggtitle("Player statistics vs Team name", subtitle =  "Plot 12") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(plot.title = element_text(hjust = 0.9))
+```
+
+### 2.2.2.6 Confidence intervals for mean 
+
+*Confidence interval explains likelihood of range within which mean would fall if sampling is repeated. The table below shows 95% confidence interval ranges for mean for all numerical parameters in the dataset for a two tailed hence qnorm(0.975). For features Career length  are so narrow, this means value of 5.30	standard errors below mean and  value of 6.90 standard errors above mean are to be expected in 2.5% of cases both sides, We can clearly see that confidence intervals for Salary and At_bats are so widely spread from the mean explaining the unreliability in the sample, wider the interval the more confident we can be about the sample mean.*
+
+
+```{r}
+#subset numerical data
+ci_data <-
+  data_frame %>% dplyr::select(-c(
+    Player_ID,
+    Team_ID,
+    Hit_Ind_2015,
+    Bat_Style,
+    Birth_Date,
+    Team_Name,
+    Birth_Year
+  ))
+
+# calculate mean
+conf_intervals     <- as.data.frame(sapply(ci_data, mean))
+
+# calculate sd
+conf_intervals$sd  <- sapply(ci_data, sd)
+colnames(conf_intervals) <- c("Mean", "Standard_deviation")
+
+# calculate upper confidence intervals
+conf_intervals$lower_ci <-
+  conf_intervals$Mean  - qnorm(0.975) * conf_intervals$Standard_deviation / sqrt(nrow(ci_data))
+
+# calculate lower confidence intervals
+conf_intervals$upper_ci <-
+  conf_intervals$Mean  + qnorm(0.975) * conf_intervals$Standard_deviation / sqrt(nrow(ci_data))
+
+# confidence intervals
+conf_intervals  <-
+  conf_intervals %>% dplyr::select(Mean, lower_ci, upper_ci)
+
+# Rounding numbers to two digits and removing exponents
+format(round(conf_intervals, 2), scientific = FALSE)
+```
+
+
+
+## 2.2.3 Hypothesis Testing
+
+###  2.2.3.1 Effect of Batting style on Hits scored - One Way ANOVA
+
+*The hypothesis i want to test is whether the batting style has an affect on hits scored, So for efficiency i considered the observations where a player scored a hit. Before performing anova lets check how means of each category are distributed by category, the plot 13 shows there are differences in means between the groups visually. The idea behind Anova is to compare means even though the name has variance in it (Crawley, 2015). The underlying assumptions for the anova are as follows:*
+
+
+##### Assumptions.
++ *Assuming data is radomly sampled and normally distributed with a constant variances *
++ **Null Hypothesis (H0)**        :  *There are no differences in means of batting styles by players μ1(Left) = μ2(Right) = μ3(Both)*
++ **Alternative Hypothesis (H1) **:  *There are differences in atleast one of the two  means; μ1, μ2, and μ3 are not all equal.*
++ **Significance level**          :  *Test hypothesis at α = 0.05.*
+
+```{r}
+# create dataframe for observations where a player scored a hit
+anova_df <- data_frame %>% filter(Hits != 0) %>%
+  mutate(Bat_Style = as.character(Bat_Style)) %>%  dplyr::select(Hits, Bat_Style)
+
+# distribution of hits with respect to Batting style
+plot13 <- ggplot(data = anova_df, aes(x = Hits, fill = Bat_Style)) +
+  geom_density(adjust = 1.5, alpha = .4)
+plot13 + ggtitle("Density plot for Batting style with respect to Hits scored",
+                 subtitle =  "Plot 13")
+
+```
+
+##### Results. 
+*From the results of one way anova we can see the p-value of .19 is higher than the significance level of 0.05. The F statistic for the test is 1.729 which is much lower than calculated critical value of 3.23 at 95% confidence interval. Hence we can accept the null hypothesis and conclude that batting style has no significant impact on players scoring a hits. The diagnostic plot below shows the residuals versus fitted values, the plot shows  that the variances are not completely identical in three treatments, not significant but on the standardized plot we can see the line showing  a downward trend. The residuals are normally distributed with the exceptions of three outliers and shows reasonably straight line relationship.*
+
+```{r}
+# Model fit
+anova_fit <- aov(data = anova_df, formula =   Hits ~ Bat_Style)
+summary(anova_fit)
+```
+
+```{r}
+anova_df %>% filter(Bat_Style == "Both")
+```
+
+
+```{r}
+# Critical value - 2 degree of freedom in the numerator / 40 degrees of freedom in the denominator
+# df1 - three levels of bat style hence df = (3-1) = 2
+# df2 - 12 replicates of left ; 26 replicates of left  ; 5 replicates of both ;  
+# total = 43 ; hence df2 = (43-3) = 40
+
+qf(.95, df1 = 2, df2 = 40)
+```
+
+
+```{r}
+# Diagnostics plots
+par(mfrow = c(2, 2))
+plot(anova_fit) 
+```
+
+###  2.2.3.2  Effect of Player's Team on salary (T-Test).
+
+*The hypothesis i want to test is weather the team to which a player belongs to have an impact on their annual salary. To check this i will conduct a Students T-test , the test assumes that errors are normally distributed, to check this assumption i have randomly sampled equal number of observations from both teams and checked for normality in errors.Errors are mostly normally distributed from the plot 14 and the Shapiro-Wilk test proves the normality assumption with a p-value of  0.8276.*
+
+```{r}
+
+# density plot for salaries of players for different teams
+plot13 <-
+  ggplot(data = data_frame, aes(x = Salary, fill = Team_Name)) +
+  geom_density(adjust = 1.5, alpha = .5) +
+  scale_fill_brewer(palette = "Set1") + ggtitle("Density plot for Salary with respect to Team", subtitle = "Plot 13")
+
+# subset salaries of kansas city players
+kansas  <-
+  data_frame[data_frame$Team_ID == "KCA", c("Team_Name", "Salary")]
+
+# subset salaries of losangles players
+set.seed(121)
+los_ang <-
+  data_frame[data_frame$Team_ID == "LAN", c("Team_Name", "Salary")] %>% sample_n(36)
+
+# difference 
+diff_errors <-
+  diff(kansas$Salary - los_ang$Salary) %>% as.data.frame()
+
+# density plot for errors
+plot14 <-
+  ggplot(data = diff_errors)  + geom_density(aes(x = ., fill = "blue"), alpha =
+                                               .5) +
+  ggtitle("Density plot for standard error of the difference", subtitle = "Plot 14") + theme(legend.position = "none")
+
+# grid plot
+grid.arrange(plot13, plot14, ncol = 1)
+
+# shapiro-test for normality
+shapiro.test(diff_errors$.)
+```
+
+##### Assumptions.
+
++ *Assuming data variance is equal.*
++ **Null Hypothesis (H0)**        :  *There are no differences in means of salaries between both teams.*
++ **Alternative Hypothesis (H1) **:  *There are differences in mean of salaries between teams*
++ **Significance level**          :  *Test hypothesis at α = 0.05.*
+
+*We have a sample size of 76 observations with two estimating parameters, which results in a degrees of freedom of 74 i.e (76-2), Since there is uncertainty in which of the teams have a higher mean salary we implement a two tailed test, so the critical values for the test is 1.992543 ,The estimated t-value from the test is t = -1.7976. The negative sign will be ignored and only the magnitude of t-value is considered for comparison hence t = 1.7976.  we fail to reject the null hypothesis because the t-value(1.7976) is less than the critical value (1.992543). Also p-value 0.06794 is greater than 0.05 which supports our test results. We can conclude that there is no significant evidence that mean of salaries of both the teams are different.*
+
+
+```{r}
+# Critical value
+qt(0.975, df = 74)
+
+# test
+t.test(data_frame$Salary ~ data_frame$Team_Name, var.equal = TRUE)
+
+```
+
+
+###  2.2.3.3 Testing correlation between salary and career length.
+
+*From the domain knowledge i assumed that career_length_years and salary variables will be strongly positively correlated.But the plot 15 shows that these variables are correlated with  pearson correlation coefficient of 0.5014078, which is less than other popular sport domains. So lets check this hypothesis weather career length has a significant affect on salary in baseball.*
+
+
+```{r}
+# Correlation plot
+ggpairs(data = data_frame[, c(Player_Stats, "Career_Length_Years")],
+        title = "Correlation matrix for Player statistics") + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+##### Assumptions.
+
++ **Null Hypothesis (H0)**        :  *Salary is not correlated with career length i.e Correlation = 0.*
++ **Alternative Hypothesis (H1)** :  *Correlation is not equal to zero.*
++ **Significance level**          :  *Test hypothesis at α = 0.05.*
+
++ *Pearson product-moment correlation assumes both the variables involved are normally distributed and continuous in nature. The variables are positively correlated with a pearson correlation coefficient of 0.5014078 , which means about 50% of the times Salary increases when career length in year increases, The correlation test is highly significant with a p-value of 3.954e-06. Hence null hypothesis can be rejected.*
+
+```{r}
+# Testing correlation between salary and career length.
+cor.test(data_frame$Career_Length_Years, data_frame$Salary,
+         method = "pearson")
+```
+
+
+
+# 3. Modelling
+
+## 3.1 Build a model for player salary
+
++ *Before building the model i need to understand the importance of features with respect to salary. For this i plan to implement a decision tree which helps us to rank the importance of variables with a hierarchical manner which are easy to interpret (Breiman, 2001). The decision trees are white box models which utilize boolean logic for explanation. From the plot it is clear that variables career_Length_Years, Age, At_Bats and Games_Played have higher feature importance. Perhaps the biggest split is with root node where Career_Length_Years < 5.3 approximately split whole data into 50%(approx.). Additional notable splits include i) where 50% of observation fall in category where career length > 5.3 and age >= 27. ii) 38% of observations lie under career_length < 4.4 years.*
+
+```{r}
+# The following vector contains all explanatory that involved in building model
+predictor_vars <- colnames(data_frame)[!colnames(data_frame) %in%
+                                         c("Team_ID", "Player_ID", "Birth_Date", "Salary")]
+
+# For the ease of model building i want to consider the year column as continuous numeric variable
+data_frame$Birth_Year <- as.numeric(data_frame$Birth_Year)
+
+# Decision tree
+decision_tree_regressor <-
+  rpart(
+    data = data_frame %>% dplyr::select(c(all_of(predictor_vars), Salary)),
+    formula = Salary ~ .,
+    minsplit = 15,
+    minbucket = 1
+  )
+
+
+# Plot Decision tree
+par(mfrow = c(1, 1))
+fancyRpartPlot(decision_tree_regressor,
+               palettes = "Set3",
+               main = "Decision tree for target variable - Salary")
+```
+
++ *For the purpose of this model building i dropped features "Player_ID","Birth_Date","Birth_Year" because Played_ID being unique identifier does not contribute to the model and features "Birth_Date"a and "Birth_Year" are explained by age variable.*
+
+```{r}
+## dropping columns "Player_ID","Team_ID","Birth_Date","Birth_Year" for modeling data
+modeling_data <-
+  data_frame %>% dplyr::select(-c("Player_ID", "Team_ID", "Birth_Date", "Birth_Year"))
+
+# convert team name to factor
+modeling_data$Team_Name <- as.factor(modeling_data$Team_Name)
+
+```
+
+#### 3.1.1 Baseline model - Model 1
+
++ *Since our dataset contains continuous and categorical explanatory variables, ANCOVA (Analysis of covariance)  will be the appropriate statistical method to build model on salary. It combines Analysis of Variance and regression and estimates slope for each level of categorical variable. The following chunk of R code involves fitting the base model where every explanatory variables are  used, its not the optimal model but helps us to understand the behavior of the features.* 
+
++ *From the results of the model we can clearly see that most of the coefficients are insignificant except for the features Hit_Ind_2015, Career_Length_Years, Age and Team_NameLos Angeles Dodgers where p-value lies below 0.05. The model performance metric Multiple R square is 0.4774, it represents the amount of variance that is explained by explanatory variables for target variable (Kabacoff, 2011). The problem with R square is the values increases with number of parameters increases, Since our baseline model contains lot of parameters it is appropriate to look at Adjusted R-squared which is more honest estimate and takes consideration of number of parameters. The Adjusted R-squared for the model is very poor with a value of 0.3574. So lets use step function on base model which gives minimal adequate model based on lower Akaike’s Information Criterion (AIC).*
+
+
+```{r}
+
+# base model
+
+# Explanatory variables
+exp_vars <-
+  colnames(modeling_data)[!colnames(modeling_data) %in% "Salary"]
+
+# fitting model
+model_1 <- lm(data = modeling_data, formula = Salary ~ .)
+
+# Summary of model
+summary.lm(model_1)
+
+```
+
+#### 3.1.2 Minimal adequate model - using stepwise selection
+
++ *From the results we can see that minimal adequate model decreasing the AIC from 2357.64 to 2344.02 and there has been increase in value Adjusted R-squared. The F-statistic which tests whether the explanatory variables as collectively can predict target variable above chance levels (Kabacoff, 2011) almost went from 3.98 to 9.826 which is impressive. The significant coefficients are same as we observed in model1. However to conclude model has improved but not significant enough. Since our target variable (salary) is on a scale from 50000 to 3000000 and our explanatory variables lie between a scale between 0 to 600 it is essential to normalize the target variable with log transformation. Transformation can rectify the situation if we dont meet the assumptions of linearity, normality or homoscedasticity (Kabacoff, 2011). So lets try log transform in next R code if it improves model.*
+
+```{r}
+# baseline model - using step
+
+# fitting model
+model_2 <- lm(data = modeling_data, formula = Salary ~ .)
+model_2 <- step(model_2)
+
+# Summary of model
+summary.lm(model_2)
+
+```
+
+#### 3.1.3 Choosing right power transformation for target variable
+
+*To select appropriate power transformation for target variable Box-Cox method allows to examines all the possible transformations from Lambda = -5 to Lamba = +5 for target variable assuming the target variable is strictly positive (Dalpiaz, 2016). Lambda parameter is chosen by maximizing the loglikelyhood numerically. From the plot below we can clearly see that λ = 0 suggesting the transformation of form log(y), So lets build model on log transformed variable in next chunk of R-code.*
+
+```{r}
+# model with all variables
+bc_model <- lm(formula = Salary ~ ., data = modeling_data)
+
+# apply boxcox function to find the best transformation
+boxcox(bc_model,
+       plotit = TRUE,
+       lambda = seq(-0.3, 0.3, by = 0.1))
+
+```
+
+#### 3.1.4 Log transforming target variable
+
++ *There are significant improvements in model performance metrics, F-statistic almost tripled from the base line model and model accounts for 52% variance explained by explanatory variables which is good. The notable improvement is Residual standard error reduced from 4768000 to 0.8636. In the next chunk R code i want to select the significant explanatory variables identified in this model which are Team_Name, Hit_Ind_2015, Hits, At_Bats ,Career_Length_Years, Age and try their combination of quadratic term (X^2) and see if it improves the model.*
+
+```{r} 
+# Log transforming target variable
+log_target <- log(modeling_data %>% dplyr::select(c(Salary)))
+
+# Merging to explanatory variables
+log_data    <-
+  cbind(log_target, modeling_data %>% dplyr::select(c(-Salary)))
+
+# fitting model
+model_3 <- lm(data = log_data, formula = Salary ~ .)
+model_3 <- step(model_3)
+
+# Summary of model
+summary.lm(model_3)
+```
+
+#### 3.1.5 Model4
+
++ *The following R code involves builds model on significant variables obtained from previous and add their quadratic term for numerical variables that is X^2. The Adjusted R-squared and Multiple R-squared are 0.5495 and 0.5915 respectively, so far the best performance. Even the model performance metrics are strong the model looks too complicated with too many variables and their quadratic terms. According to Principle of Parsimony proposed by William of Occam models should be as simple as possible with fewer parameters and simple explanations (Crawley, 2015). Let's check we can chop the model further down with fewer variables and try few interactions and see if it improves the model.* 
+
+```{r}
+
+# Formula
+formula_model <- Salary ~ Team_Name + Hit_Ind_2015 +
+  Hits + I(Hits ^ 2) + At_Bats + I(At_Bats ^ 2) +
+  Career_Length_Years + I(Career_Length_Years ^ 2) +
+  Age + I(Age ^ 2)
+
+# fitting model
+model_4 <- lm(data = log_data, formula = formula_model)
+model_4 <- step(model_4)
+
+# Summary of model
+summary.lm(model_4)
+
+```
+
+#### 3.1.6 Final Model
+
++ *After experimenting several iterations of addition and deletion of variables and their interactions, the best model i came up with is with formula Salary = Team_Name + I(At_Bats^2) + Career_Length_Years + Hits + Career_Length_Years:Age. I chose this model because it has higher explanatory power with Multiple R-squared of 0.59 and F-statistic of 20.3. The model is simple but not so simpler that it is overfitting the data. Further noteworthy insight is removing age variable and adding interaction of Age and Career_Length_Years enhanced model performance remarkably. The next section take into account relevant diagnostics and critiquing model.*
+
+```{r}
+# Formula
+formula_model2 <- Salary ~ Team_Name + I(At_Bats ^ 2) +
+  Career_Length_Years + Hits + Career_Length_Years:Age
+
+
+# fitting model
+model_5 <- lm(data = log_data, formula = formula_model2)
+
+# Summary of model
+summary.lm(model_5)
+```
+
+
+
+## 3.2 Critique model using relevant diagnostics
+
+*Firstly the chosen model's prediction equation is as follows :*
+
+**Formula -**  
+
++ **log(Salary) = 12.48 + 0.3286(Team_NameLos Angeles Dodgers) -7.682e-06(At_Bats^2) + 1.121(Career_Length_Years) + 0.01895(Hits) -0.02553(Career_Length_Years:Age)**
+
++ **Salary = exp(12.48 + 0.3286(Team_NameLos Angeles Dodgers) -7.682e-06(At_Bats^2) + 1.121(Career_Length_Years) + 0.01895(Hits) -0.02553(Career_Length_Years:Age))**
+
+**Interpreting Coefficients : ** *In ANCOVA the intercept is a bit tricky, it represents the factor level of Team_Name which comes first if arranged in alphabetical order, in this case it is for Kansas City Royals. To get the intercept for Los Angeles Dodgers we need to add 0.3286 to intercept of Team_Name Kansas City Royals (12.48 + 0.3286 = 12.8086). This intercept represents if player being Los Angeles Dodgers is true then log of salary increases by 12.8086 units holding all explanatory variables constant. Likewise, the coefficient for Career_Length_Years is (1.121), this indicates that there is an expected increase in log of salary by 1.21 times with 1 year increase in career length holding all explanatory variables constant. Lets break this down further to normal values by removing logs (exp(1.121) = 3.067921); hence salary multiplies by 3.06 for every year increase in career length.*
+
+
+**Performance Metrics : ** *Firstly the p-values for numerical explanatory variables Career_Length_Years, At_Bats^2, Hits, Career_Length_Years:Age are statistically significant with p-values less than 0.05. Secondly the model explains 59% of variation (Multiple R-squared) accounted for response variable which is satisfactory. Residual Standard Error (RSE) which measures the quality of the fit has dropped exceptionally from baseline model of 4992000 to 0.7924 with 70 degrees of freedom (76 observations - 6 coefficients), lower the RSE better the model is. Lastly, F-statistic has doubled from minimal adequate model with a value of 20.31 at a p-value of 1.815e-12, this tests whether fewer parameters has better explanatory power.*
+
+**Diagnostics :** *This focuses on checking for statistical assumption for a regression analysis. Even though we used ANCOVA, it is similar to linear model but estimating slopes and intercepts at different levels of factors. Hence regression assumptions lie the same. A typical approach in R involves using plot function on model to examine assumptions.*
+
++ **Normality : **  *The Q-Q plot checks for assumption of normality in dependent variable, if it is normally distributed then  data points should be on a 45-degree straight line. From the plot below we've clearly met this assumption except for three data points with index 27,33,43. These can be identified as outliers that aren't fitted well into the model.*
+
+```{r}
+# Q-Q plot 
+plot(model_5,2)
+```
+
++ **Heteroscedasticity : ** *This occurs when model violates the assumption constancy of variance, in that case the plot for residuals and fitted values show a clear pattern of increase in scatter as fitted values get larger. The plot  from below is not showing a clear pattern as such mentioned before but there is a pattern from 13 to 14 of fitted values. Apart from that our model is satisfying the constant variance from the plot 3 which is similar plot with standardized values.*
+
+```{r}
+# check for variance assumption
+plot(model_5,1)
+```
+
++ **Independence : ** *This assumption doesn't rely on the plot but assumes target variable is independent from one another, this is subject to understanding of data collection methods. We don't have evidence to support salary of one player is dependent on salary of other player.*
+
++ **Linearity : ** *This can be examined by looking at red line present in residuals vs fitted plot i.e, the line should be approximately horizontal at 0. From our plot the line appears to almost horizontal suggesting a linear relation between explanatory and target variable.*
+
+```{r}
+# check for linear assumption
+plot(model_5,1)
+```
+
++ **Influential observations** *The plot below shows the index of the observation on x-axis and their respective Cook’s distance on Y-axis, from the plot observations with index 27,40,43 are influential observations. These datapoints have disproportionate impact on predicting power of the model parameters and can negatively impact the model performance metrics.*
+
+```{r}
+# check for Influential observations
+plot(model_5,4)
+```
+
+**Distribution of Residuals : ** *The plot illustrates approximately normally distributed residuals satisfying the assumptions of ANCOVA model. *
+
+```{r}
+# Predicted values
+predicted <- predict(model_5, newdata = log_data)
+
+# Actual values
+originals <- log_data$Salary
+
+# Residuals
+residuals <- predicted - originals
+
+# Histogram
+hist(residuals)
+
+```
+
+
++ **Multicollinearity : ** *This phenomenon occurs when explanatory variables are highly correlated with each other, this leads to large size  confidence intervals for features making difficult to interpret coefficents (Kabacoff, 2011). It can be identified in R by using vif(variance inflation factor), As a rule of thumb if parameter violates the rule sqrt(vif > 2) suggests there is a problem. From the results we can see that four out of five parameters do not satisfy the condition and our model suffers from multicollinearity. The correlation between Career_Length_Years:Age and  Career_Length_Years is not really to be concerned about because they are dependent on each other, however multicollinearity between I(At_Bats^2) and Hits is an issue. This phenomenon doesn't really affect the reliability or predictive power of the model but if we are concerned about the interpretations from coefficient explanatory variables we need to deal with it by dropping variables (Kabacoff, 2011). * 
+
+```{r}
+# check for multicollinearity
+sqrt(vif(model_5)) > 2
+```
+
+
+
+
+
+## 3.3 Suggest improvements to your model
+
+*The suggested improvements for the final model is based on two different approaches and underlying objectives:*
+
++ **Approach 1 : ** *if my aim is to improve the predictive power of the model i will drop the influential observations identified from cook's distance and see if it enhances model performance. From the results model we can see significant improvement in model performance metrics with Multiple R-squared by 0.66 and F-statistic by 26.76. Despite the fact the model looks significantly better there are few risks undertaking this approach. Since our dataset has fewer observations this might lead to data loss and can cause the problem of overfitting. Undertaking this approach need thorough investigation on these observations regarding their legitimacy.*
+
+```{r}
+# Formula
+formula_model3 <- Salary ~ Team_Name + I(At_Bats ^ 2) +
+  Career_Length_Years + Hits + Career_Length_Years:Age
+
+# fitting model
+model_6 <-
+  lm(data = log_data[-c(27, 43, 67), ], formula = formula_model3)
+
+# Summary of model
+summary.lm(model_6)
+```
+
++ **Approach 2** *if our aim is to achieve higher explanatory power from coefficients and address the issue of multicollinearity then we would drop few parameters. After few iterations of addition and deletion of parmeters in search for absence of multicollinearity i dropped the quadratic feature  I(At_Bats^2) and interaction feature Career_Length_Years:Age. From the results the rule sqrt(vif(model_7)) > 2 for  all the variables tested negative for multicollinearity and the model is simpler with no interactions or quadratic terms which satisfy the principle of parsimony. If we undertake this approach there is trade-off, the variance explained by predictor variables reduces to 44% (Multiple R-squared).*
+
+```{r}
+# Formula
+formula_model4 <- Salary ~ Team_Name + At_Bats +
+  Career_Length_Years
+
+# fitting model
+model_7 <- lm(data = log_data, formula = formula_model4)
+
+# Summary of model
+summary.lm(model_7)
+
+# check for multicollinearity
+sqrt(vif(model_7)) > 2
+```
+
+
+# 4. Extension work
+
+## 4.1 Model the likelihood of a player having scored a Hit (using the hit.ind variable provided).
+
+*Since our target variable Hit_Ind_2015 is binary categorical variable with two different levels and the explanatory variables consists of set of continuous and categorical variables, the chosen approach for assessing player's likelihood of scoring a Hit involve implementing a Logistic regression model. Unlike linear Regression equation, in logistic Regression we build model for log of odds ratio of an event occurring (Kabacoff, 2011). To avoid the problem of multicollinearity which we faced earlier i would like to access correlation between variables before building model and drop highly correlated variables.*
+
+*The plot below illustrates correlation between game statistics, we can clearly see the high pearson correlation coefficent between variables. On that account im removing variables Runs_Scored, Hits, At_Bats and Runs_Batted_In features from dataset and just using Games_played variable. Additionally i'm dropping Player_ID because of unique identifier and Birth_Year,Birth_Date because these are represented by Age variable.*
+
+```{r}
+# Correlation Plot for Game stats
+ggcorr(
+  data_frame %>% dplyr::select(all_of(Game_Stats), "Hit_Ind_2015"),
+  label =  TRUE,
+  name = "pearson correlation"
+)  + ggplot2::labs(title = "Correlation Plot for Game stats")
+```
+
+*The following R function "logit_model" takes explanatory_variables as argument and builds logistic model on the these variables and returns model summary, performance metrics and ROCR curve. The aim is to build model on different combinations of variables without difficulty. *  
+
+```{r}
+# subset data by dropping Hits,Team_ID,Player_ID,Birth_Year,Birth_Date, Runs_Scored,Runs_Batted_In,At_Bats
+
+model_data_logit <- data_frame %>% dplyr::select(-c(Hits,Team_ID,Player_ID,Birth_Year,Birth_Date,Runs_Scored,Runs_Batted_In,At_Bats))
+
+# convert target variable to factor 
+model_data_logit$Hit_Ind_2015 <- as.factor(model_data_logit$Hit_Ind_2015)
+
+
+# function for model
+logit_model <- function(explanatory_variables) {
+  # subset dataframe with selected variables
+  explanatory_variables <-
+    append(explanatory_variables, "Hit_Ind_2015")
+  df <-
+    model_data_logit[, colnames(model_data_logit)[colnames(model_data_logit) %in% explanatory_variables]]
+  
+  # model
+  model <-
+    glm(data = df,
+        formula = Hit_Ind_2015 ~ . ,
+        family = "binomial")
+  print(summary(model))
+  
+  # predictions
+  predictions <- predict(model, type = "response")
+  predictions <- ifelse(predictions > 0.5 , 1, 0)
+  
+  # conf matrix
+  conf_matrix <- table(df$Hit_Ind_2015, predictions)
+  
+  # Plot ROCR
+  rocr_pred <-
+    prediction(predict(model, type = "response"), df$Hit_Ind_2015)
+  rocr_perf <- performance(rocr_pred, "tpr", "fpr")
+  plot(rocr_perf, col = "red", lty = 40)
+  abline(0, 1 , col = "blue", lty = 10)
+  title("Receiver operating characteristic - curve")
+  
+  # Evaluation metrics
+  tp <- conf_matrix[4] # True Positive
+  tn <- conf_matrix[1] # False Negative
+  fp <- conf_matrix[3] # False Positive
+  fn <- conf_matrix[2] # False Negative
+  
+  # Accuracy
+  Accuracy  <- round(((tp + tn) / (tp + tn + fp + fn)) * 100, 2)
+  # Sensitivity
+  Specificity <- round(((tn) / (tn + fp)) * 100, 2)
+  # Specificity
+  Sensitivity <- round(((tp) / (tp + fn)) * 100, 2)
+  # Area Under the Curve (AUC)
+  auc_perf <- performance(rocr_pred, measure = "auc")
+  auc_perf <- auc_perf@y.values[[1]]
+  
+  # Print evaluation metrics
+  cat("-----------------\n",
+      "Confusion Matrix \n",
+      "-----------------\n")
+  print(conf_matrix)
+  cat("Accuracy : ", Accuracy, "%\n")
+  cat("Specificity : ", Specificity, "%\n")
+  cat("Sensitivity : ", Sensitivity, "%\n")
+  cat("Area Under the Curve (AUC) : ", round(auc_perf, 2))
+}
+```
+
+
+### 4.1.1 Baseline Model
+
+*The model is built on using all the variables from subsetted dataframe, from the results we can clearly see that only two variables namely Games_Played and Salary are statistically significant with p-value < 0.05. The overall performance metrics looks exceptional with Accuracy of 71.05%, Specificity of 69.7% and Sensitivity of 72.09%. Let's remove the insignificant variables and check if it improves the current model in next R code.*
+
+```{r}
+# model with all  the variables from subsetted dataframe
+logit_model(c(colnames(model_data_logit)[!colnames(model_data_logit) %in% "Hit_Ind_2015"]))
+```
+
+### 4.1.2 Final Model
+
+*From the p-values of regression coefficients, all the variables Games_Played, Salary and Intercept looks significant. Moreover the model appears to be simpler accepting the principles of parsimony and there has been a significant improvement in performance metrics with an Accuracy of 75%, Specificity of 75.76% and Sensitivity of 74.42%. However Area Under the Curve seems to be lowered by a bit. We will critically evaluate the diagnostics for this model in next section.*
+
+```{r}
+# model with significant variables from previous section
+logit_model(c("Games_Played", "Salary"))
+```
+
+
+## 4.2 Critique model using relevant diagnostics
+
+**Formula : **
+
++ **log(Probability of scoring a hit/(1- Probability of scoring a hit)) =  -2.125751 + Games_Played(0.03328457) +  Salary(1.315670e-07) **
+
++ **(Probability of scoring a hit/Probability of not scoring a hit) = exp(-2.125751 + Games_Played(0.03328457) +  Salary(1.315670e-07)) **
+
++ **Interpreting Coefficients : ** *The logistic regression is modeled on log of odds ratio of an event occurring, as a result regression coefficients represent change in log(odds) of target variable for unit change in explanatory variable explanatory holding remaining explanatory variables constant. In our model coefficients can be interpreted as, log of odds of player scoring a hit is increases by a factor of 0.033 for every game a player plays. Conversely after removing logs, the odds scoring a hit is multiplied by 1.033 (exp(0.03328457)) for every unit increase in game played.*
+
++ **Confusion Matrix : ** *The model has accurately predicted 32 cases of 43 scenarios where players scored a hit also represented as true positives. Similarly model has accurately predicted 25 of 33 cases where player did not score a hit. Additionally there are Type I error cases of 8 false positives where actual values are 0’s but the model has predicted them as 1 and conversely Type II error cases of 11.*
+
++ **Performance Metrics : ** *Accuracy of model tends to be 75% which is technically a good degree of fit, but the drawback with accuracy is it can be misleading if target variable in the dataset is disproportionate. To tackle this issue sensitivity and specificity comes to play which can quantify true positive and true negative rates respectively (Tharwat, 2018). Sensitivity or recall of our model is 74.42 % and specificity is 75.76% which are pretty decent.*
+
++ **ROCR Curve : ** *A receiver operating characteristic curve is plot between true positive rate and false positive rate, Area Under the Curve (AUC) is a portion of the area below curve of model which can quantify performance (Fawcett, 2006). The red line in our ROCR plot illustrates the logistic regression classifier for our model and blue line represents model being at random. Evidently our classifier is performing better than random model with area under curve of 0.82 .According to industry standards AUC between 0.80-0.90 is treated as a good model (Fawcett, 2006).*
+
+
+
+# References
+
++ *Barchard, K. and Pace, L., 2011. Preventing human error: The impact of data entry methods on data accuracy and statistical results. Computers in Human Behavior, 27(5).*
+
++ *Baseballprospectus.com. 2020. Baseball Prospectus | Team Codes By Year. [online] Available at: <https://legacy.baseballprospectus.com/sortable/extras/team_codes.php?this_year=2015> [Accessed 28 November 2020].*
+
++ *Baseball-Reference.com. 2020. Yearly League Leaders &Amp Records For Youngest | Baseball-Reference.Com. [online] Available at: <https://www.baseball-reference.com/leaders/Youngest_leagues.shtml> [Accessed 28 November 2020].*
+
++ *Breiman, L., 2001. Machine Learning, 45(3), pp.261-277.*
+
++ *Crawley, M., 2015. Statistics. Chichester: J. Wiley & Sons, p.8,61,150.*
+
++ *Dalpiaz, D., 2016. Chapter 14 Transformations | Applied Statistics With R. [online] Daviddalpiaz.github.io. Available at: <https://daviddalpiaz.github.io/appliedstats/transformations.html> [Accessed 11 December 2020].*
+
++ *Enders, C., 2010. Applied Missing Data Analysis. NewYork: The Guilford Press, p.44.*
+
++ *Fawcett, T., 2006. An introduction to ROC analysis. Pattern Recognition Letters, 27(8), pp.861-874.*
+
++ *Fürber, C., 2016. Data Quality Management With Semantic Technologies. pp.20-21*
+
++ *Jonge, M., 2019. Introduction To Validate. [online] Cran.r-project.org. Available at: <https://cran.r-project.org/web/packages/validate/vignettes/introduction.html> [Accessed 27 November 2020].*
+
++ *Kabacoff, R., 2011. R In Action. New York: Manning Publications Co., p.181,199,210.*
+
++ *Levin, R. and Rubin, D., 1998. Statistics For Management. Upper Saddle River, N.J.: Prentice Hall, p.2.*
+
++ *Madley-Dowd, P., Hughes, R., Tilling, K. and Heron, J., 2019. The proportion of missing data should not be used to guide decisions on multiple imputation. Journal of Clinical Epidemiology, 110.*
+
++ *Pearson, R., 2020. Exploratory Data Analysis Using R. [S.l.]: CRC PRESS, p.97.*
+
++ *Shepperd, M., Song, Q., Sun, Z. and Mair, C., 2013. Data Quality: Some Comments on the NASA Software Defect Datasets. IEEE Transactions on Software Engineering, 39(9), pp.4-5.*
+
++ *Shepperd, M. and Liebchen, G., n.d. Data Sets and Data Quality in Software Engineering. [online] Available at: <https://bura.brunel.ac.uk/bitstream/2438/1852/1/PROMISE2008_v16.pdf> [Accessed 10 November 2020].*
+
++ *Tharwat, A., 2018. Classification Assessment Methods. [online] Emerald.com. Available at: <https://www.emerald.com/insight/content/doi/10.1016/j.aci.2018.08.003/full/pdf?title=classification-assessment-methods> [Accessed 7 December 2020].*
+
++ *Tukey, J., 1977. Exploratory Data Analysis. Reading, Mass.: Addison-Wesley, p.3.*
+
++ *Tukey, J., 1962. The Future of Data Analysis. The Annals of Mathematical Statistics, 33(1), p.2.*
+
++ *Wilkinson, 2016. The FAIR Guiding Principles for scientific data management and stewardship. Scientific Data, 3(1).*
